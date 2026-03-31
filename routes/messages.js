@@ -8,51 +8,32 @@ let { CheckLogin } = require("../utils/authHandler");
 router.get("/", CheckLogin, async function (req, res, next) {
   try {
     let currentUserId = req.user._id;
-    let messages = await messageModel.aggregate([
-      {
-        $match: {
-          $or: [
-            { from: currentUserId },
-            { to: currentUserId }
-          ]
-        }
-      },
-      {
-        $addFields: {
-          partnerId: {
-            $cond: [{ $eq: ["$from", currentUserId] }, "$to", "$from"]
-          }
-        }
-      },
-      {
-        $sort: {
-          createdAt: -1
-        }
-      },
-      {
-        $group: {
-          _id: "$partnerId",
-          lastMessage: { $first: "$$ROOT" }
-        }
-      },
-      {
-        $replaceRoot: {
-          newRoot: "$lastMessage"
-        }
-      },
-      {
-        $sort: {
-          createdAt: -1
-        }
+    let messages = await messageModel
+      .find({
+        $or: [
+          { from: currentUserId },
+          { to: currentUserId }
+        ]
+      })
+      .populate("from", "username email fullName avatarUrl")
+      .populate("to", "username email fullName avatarUrl")
+      .sort({ createdAt: -1 });
+
+    let latestMessages = [];
+    let chattedUsers = new Set();
+
+    for (let message of messages) {
+      let partnerId = message.from._id.toString() === currentUserId.toString()
+        ? message.to._id.toString()
+        : message.from._id.toString();
+
+      if (!chattedUsers.has(partnerId)) {
+        chattedUsers.add(partnerId);
+        latestMessages.push(message);
       }
-    ]);
+    }
 
-    messages = await messageModel.populate(messages, [
-      { path: "from", select: "username email fullName avatarUrl" },
-      { path: "to", select: "username email fullName avatarUrl" }
-    ]);
-
-    res.send(messages);
+    res.send(latestMessages);
   } catch (error) {
     res.status(400).send({ message: error.message });
   }
